@@ -114,3 +114,29 @@ CREATE TABLE estatisticas_jogador (
         ON DELETE CASCADE,
     CONSTRAINT uq_jogador_jogo UNIQUE (id_jogo, id_jogador)
 ) ENGINE=InnoDB;
+
+-- =====================================================================
+-- Migração 2 — vincula o app a `times` e `jogadores`
+-- Aplicada automaticamente pelo api.php (função ensureSchema) na primeira
+-- requisição após a atualização; mantida aqui só como documentação.
+-- app_id guarda o id local (do localStorage) de cada time/jogador, para
+-- que salvar/editar/excluir no app reflita sempre na mesma linha do banco.
+-- =====================================================================
+ALTER TABLE times
+    ADD COLUMN app_id INT NULL,
+    ADD UNIQUE KEY uq_times_app_id (app_id);
+
+ALTER TABLE jogadores
+    ADD COLUMN app_id INT NULL,
+    ADD UNIQUE KEY uq_jogadores_app_id (app_id),
+    ADD COLUMN idade TINYINT UNSIGNED NULL,
+    ADD COLUMN jogos SMALLINT UNSIGNED NULL,
+    ADD COLUMN pontos_media DECIMAL(4,1) NULL,
+    ADD COLUMN rebotes_media DECIMAL(4,1) NULL,
+    ADD COLUMN assistencias_media DECIMAL(4,1) NULL,
+    ADD COLUMN roubos_media DECIMAL(4,1) NULL,
+    ADD COLUMN tocos_media DECIMAL(4,1) NULL,
+    ADD COLUMN aproveitamento_fg DECIMAL(4,1) NULL,
+    MODIFY altura_cm SMALLINT UNSIGNED NULL,
+    MODIFY peso_kg SMALLINT UNSIGNED NULL,
+    MODIFY numero_camisa TINYINT UNSIGNED NULL;

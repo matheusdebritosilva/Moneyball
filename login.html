@@ -13,17 +13,69 @@
 </head>
 
 <body class="login-page">
-    <main class="login-card">
-        <p class="login-brand">🏆 2K STATS <small>HALL OF FAME</small></p>
-        <h1>Bem-vindo de volta</h1>
-        <p>Entre para administrar a plataforma esportiva.</p>
-        <form id="login-form"><label>E-mail<input type="email" name="email" required autocomplete="email"
-                    value="admin@2kstats.gg"></label><label>Senha<input type="password" name="password" required
-                    autocomplete="current-password" value="admin123"></label><button class="btn gold">Entrar</button>
-            <p id="login-error" role="alert"></p>
-        </form><small>Primeiro acesso: admin@2kstats.gg · senha: admin123</small>
+    <main class="login-shell card-edge">
+        <section class="login-visual">
+            <p class="login-brand">🏆 2K STATS <small>HALL OF FAME</small></p>
+            <h2 class="font-display">Onde os números <span class="text-gold-foil">contam a história</span>.</h2>
+            <p class="login-visual-copy">Estatísticas, rankings e comparações em tempo real para acompanhar cada jogador e equipe da liga.</p>
+            <ul class="login-highlights">
+                <li><span>▦</span> Dashboard completo da temporada</li>
+                <li><span>☆</span> Rankings por categoria</li>
+                <li><span>▥</span> Comparação entre jogadores</li>
+            </ul>
+        </section>
+        <section class="login-form-side">
+            <p class="login-brand login-brand--mobile">🏆 2K STATS <small>HALL OF FAME</small></p>
+            <h1>Bem-vindo de volta</h1>
+            <p class="login-sub">Entre para administrar a plataforma esportiva.</p>
+            <form id="login-form">
+                <label>E-mail
+                    <input type="email" name="email" required autocomplete="email" value="admin@2kstats.gg">
+                </label>
+                <label>Senha
+                    <div class="password-field">
+                        <input id="password-input" type="password" name="password" required
+                            autocomplete="current-password" value="admin123">
+                        <button type="button" id="toggle-password" class="password-toggle"
+                            aria-label="Mostrar senha">👁</button>
+                    </div>
+                </label>
+                <button class="btn gold" id="login-submit">Entrar</button>
+                <p id="login-error" role="alert"></p>
+            </form>
+            <small>Primeiro acesso: admin@2kstats.gg · senha: admin123</small>
+        </section>
     </main>
-    <script>document.getElementById('login-form').onsubmit = async e => { e.preventDefault(); const d = Object.fromEntries(new FormData(e.target)), r = await fetch('api.php?action=login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) }), j = await r.json(); if (!r.ok) { document.getElementById('login-error').textContent = j.error || 'Não foi possível entrar.'; return } location.href = 'index.html' }</script>
+    <script>
+        document.getElementById('toggle-password').onclick = e => {
+            const input = document.getElementById('password-input');
+            const show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+            e.currentTarget.textContent = show ? '🙈' : '👁';
+            e.currentTarget.setAttribute('aria-label', show ? 'Ocultar senha' : 'Mostrar senha');
+        };
+        document.getElementById('login-form').onsubmit = async e => {
+            e.preventDefault();
+            const form = e.target, submit = document.getElementById('login-submit'), errorEl = document.getElementById('login-error');
+            const d = Object.fromEntries(new FormData(form));
+            errorEl.textContent = '';
+            submit.disabled = true;
+            submit.classList.add('is-busy');
+            submit.textContent = 'Entrando…';
+            try {
+                const r = await fetch('api.php?action=login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
+                const j = await r.json();
+                if (!r.ok) { errorEl.textContent = j.error || 'Não foi possível entrar.'; return; }
+                location.href = 'home.html';
+            } catch {
+                errorEl.textContent = 'Não foi possível conectar ao servidor.';
+            } finally {
+                submit.disabled = false;
+                submit.classList.remove('is-busy');
+                submit.textContent = 'Entrar';
+            }
+        };
+    </script>
 </body>
 
 </html>

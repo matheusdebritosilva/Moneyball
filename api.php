@@ -40,10 +40,101 @@ function saveUsers(PDO $pdo, array $users): void {
         else $insert->execute([$name, $email, password_hash($password !== '' ? $password : bin2hex(random_bytes(16)), PASSWORD_DEFAULT), $role]);
     }
 }
+function syncTeams(PDO $pdo, array $teams): array {
+    // Sincroniza a tabela `times` a partir do array vindo do app e devolve
+    // um mapa [teamId do app] => [id_time real do banco] para vincular os jogadores.
+    $map = [];
+    $find = $pdo->prepare('SELECT id_time FROM times WHERE app_id = ? LIMIT 1');
+    $update = $pdo->prepare('UPDATE times SET nome = ?, cidade = ? WHERE id_time = ?');
+    $insert = $pdo->prepare("INSERT INTO times (nome, cidade, conferencia, divisao, overall_rating, app_id) VALUES (?, ?, 'Leste', 'Geral', 70, ?)");
+    foreach ($teams as $team) {
+        $appId = (int)($team['id'] ?? 0);
+        $name = trim((string)($team['name'] ?? ''));
+        if ($appId <= 0 || $name === '') continue;
+        $city = trim((string)($team['city'] ?? ''));
+        $find->execute([$appId]);
+        $id = $find->fetchColumn();
+        if ($id) { $update->execute([$name, $city, $id]); $map[$appId] = (int)$id; }
+        else { $insert->execute([$name, $city, $appId]); $map[$appId] = (int)$pdo->lastInsertId(); }
+    }
+    return $map;
+}
+function deleteRemovedTeams(PDO $pdo, array $teams): void {
+    $ids = array_values(array_filter(array_map(fn($t) => (int)($t['id'] ?? 0), $teams)));
+    if (!$ids) return;
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $pdo->prepare("DELETE FROM times WHERE app_id IS NOT NULL AND app_id NOT IN ($placeholders)")->execute($ids);
+}
+function existingTeamMap(PDO $pdo): array {
+    $map = [];
+    foreach ($pdo->query('SELECT app_id, id_time FROM times WHERE app_id IS NOT NULL')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $map[(int)$row['app_id']] = (int)$row['id_time'];
+    }
+    return $map;
+}
+function syncPlayers(PDO $pdo, array $players, array $teamMap): void {
+    // Sincroniza a tabela `jogadores` com o array de jogadores do app, usando o
+    // campo app_id (o id local do app) para casar cada jogador com a linha certa.
+    $find = $pdo->prepare('SELECT id_jogador FROM jogadores WHERE app_id = ? LIMIT 1');
+    $update = $pdo->prepare('UPDATE jogadores SET nome=?, posicao=?, id_time=?, idade=?, jogos=?, pontos_media=?, rebotes_media=?, assistencias_media=?, roubos_media=?, tocos_media=?, aproveitamento_fg=? WHERE id_jogador=?');
+    $insert = $pdo->prepare('INSERT INTO jogadores (nome, posicao, id_time, idade, jogos, pontos_media, rebotes_media, assistencias_media, roubos_media, tocos_media, aproveitamento_fg, app_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+    $positions = ['PG', 'SG', 'SF', 'PF', 'C'];
+    foreach ($players as $p) {
+        $appId = (int)($p['id'] ?? 0);
+        $name = trim((string)($p['name'] ?? ''));
+        if ($appId <= 0 || $name === '') continue;
+        $pos = in_array($p['pos'] ?? '', $positions, true) ? $p['pos'] : 'PG';
+        $idTime = $teamMap[(int)($p['teamId'] ?? 0)] ?? null;
+        $vals = [
+            $name, $pos, $idTime,
+            isset($p['age']) ? (int)$p['age'] : null,
+            isset($p['games']) ? (int)$p['games'] : null,
+            $p['pts'] ?? null, $p['reb'] ?? null, $p['ast'] ?? null,
+            $p['stl'] ?? null, $p['blk'] ?? null, $p['fg'] ?? null,
+        ];
+        $find->execute([$appId]);
+        $id = $find->fetchColumn();
+        if ($id) $update->execute([...$vals, $id]);
+        else $insert->execute([...$vals, $appId]);
+    }
+}
+function deleteRemovedPlayers(PDO $pdo, array $players): void {
+    $ids = array_values(array_filter(array_map(fn($p) => (int)($p['id'] ?? 0), $players)));
+    if (!$ids) return;
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $pdo->prepare("DELETE FROM jogadores WHERE app_id IS NOT NULL AND app_id NOT IN ($placeholders)")->execute($ids);
+}
+function ensureSchema(PDO $pdo): void {
+    // Ajusta as tabelas criadas em banco_de_dados.sql para acompanhar o app:
+    // adiciona app_id (liga o registro local do app à linha real do banco) e
+    // as colunas de estatísticas que o formulário de jogadores realmente usa.
+    $timeCols = $pdo->query('SHOW COLUMNS FROM times')->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('app_id', $timeCols, true)) {
+        $pdo->exec('ALTER TABLE times ADD COLUMN app_id INT NULL, ADD UNIQUE KEY uq_times_app_id (app_id)');
+    }
+    $playerCols = $pdo->query('SHOW COLUMNS FROM jogadores')->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('app_id', $playerCols, true)) {
+        $pdo->exec('ALTER TABLE jogadores
+            ADD COLUMN app_id INT NULL,
+            ADD UNIQUE KEY uq_jogadores_app_id (app_id),
+            ADD COLUMN idade TINYINT UNSIGNED NULL,
+            ADD COLUMN jogos SMALLINT UNSIGNED NULL,
+            ADD COLUMN pontos_media DECIMAL(4,1) NULL,
+            ADD COLUMN rebotes_media DECIMAL(4,1) NULL,
+            ADD COLUMN assistencias_media DECIMAL(4,1) NULL,
+            ADD COLUMN roubos_media DECIMAL(4,1) NULL,
+            ADD COLUMN tocos_media DECIMAL(4,1) NULL,
+            ADD COLUMN aproveitamento_fg DECIMAL(4,1) NULL,
+            MODIFY altura_cm SMALLINT UNSIGNED NULL,
+            MODIFY peso_kg SMALLINT UNSIGNED NULL,
+            MODIFY numero_camisa TINYINT UNSIGNED NULL');
+    }
+}
 function database(): PDO {
     $pdo = new PDO('mysql:host='.DB_HOST.';charset=utf8mb4', DB_USER, DB_PASS, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     $pdo->exec('USE `'.DB_NAME.'`');
     $pdo->exec('CREATE TABLE IF NOT EXISTS app_state (id TINYINT PRIMARY KEY, content LONGTEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB');
+    ensureSchema($pdo);
     $hasAdmin = (int)$pdo->query("SELECT COUNT(*) FROM usuarios WHERE email = 'admin@2kstats.gg'")->fetchColumn();
     if (!$hasAdmin) { $stmt = $pdo->prepare('INSERT INTO usuarios (nome,email,senha,perfil) VALUES (?,?,?,?)'); $stmt->execute(['Administrador', 'admin@2kstats.gg', password_hash('admin123', PASSWORD_DEFAULT), 'Administrador']); }
     return $pdo;
@@ -70,6 +161,16 @@ try {
             if ($user['role'] !== 'Admin') output(['error'=>'Somente administradores podem gerenciar usuários.'], 403);
             deleteRemovedUsers($pdo, $state['users'], $user['email']);
             saveUsers($pdo, $state['users']);
+        }
+        if (isset($state['teams']) && is_array($state['teams'])) {
+            deleteRemovedTeams($pdo, $state['teams']);
+            $teamMap = syncTeams($pdo, $state['teams']);
+        } else {
+            $teamMap = existingTeamMap($pdo);
+        }
+        if (isset($state['players']) && is_array($state['players'])) {
+            deleteRemovedPlayers($pdo, $state['players']);
+            syncPlayers($pdo, $state['players'], $teamMap);
         }
         $stmt = $pdo->prepare('INSERT INTO app_state (id,content) VALUES (1,?) ON DUPLICATE KEY UPDATE content=VALUES(content)'); $stmt->execute([json_encode($state, JSON_UNESCAPED_UNICODE)]);
         output(['ok'=>true]);
