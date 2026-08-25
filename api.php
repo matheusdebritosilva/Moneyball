@@ -8,6 +8,10 @@ const DB_NAME = 'basquete_2k25';
 const DB_USER = 'root';
 const DB_PASS = '';
 
+// Chave exigida para criar uma conta pela página de cadastro (cadastro.html).
+// Troque esse valor antes de publicar o site em qualquer lugar público.
+const SETUP_KEY = '2kstats-setup-2025';
+
 function output(array $data, int $code = 200): never { http_response_code($code); echo json_encode($data, JSON_UNESCAPED_UNICODE); exit; }
 function body(): array { $data = json_decode(file_get_contents('php://input'), true); return is_array($data) ? $data : $_POST; }
 function deleteRemovedUsers(PDO $pdo, array $users, string $currentEmail): void {
@@ -108,6 +112,10 @@ function ensureSchema(PDO $pdo): void {
     // Ajusta as tabelas criadas em banco_de_dados.sql para acompanhar o app:
     // adiciona app_id (liga o registro local do app à linha real do banco) e
     // as colunas de estatísticas que o formulário de jogadores realmente usa.
+    $userCols = $pdo->query('SHOW COLUMNS FROM usuarios')->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('perfil', $userCols, true)) {
+        $pdo->exec("ALTER TABLE usuarios ADD COLUMN perfil ENUM('Administrador','Analista','Viewer') NOT NULL DEFAULT 'Viewer'");
+    }
     $timeCols = $pdo->query('SHOW COLUMNS FROM times')->fetchAll(PDO::FETCH_COLUMN);
     if (!in_array('app_id', $timeCols, true)) {
         $pdo->exec('ALTER TABLE times ADD COLUMN app_id INT NULL, ADD UNIQUE KEY uq_times_app_id (app_id)');
@@ -150,6 +158,29 @@ try {
         $_SESSION['user'] = ['id'=>(int)$user['id_usuario'], 'name'=>$user['nome'], 'email'=>$user['email'], 'role'=>$user['perfil'] === 'Administrador' ? 'Admin' : 'Viewer']; output(['user'=>$_SESSION['user']]);
     }
     if ($action === 'logout') { session_destroy(); output(['ok'=>true]); }
+    if ($action === 'register') {
+        $data = body();
+        if ((string)($data['setupKey'] ?? '') !== SETUP_KEY) output(['error' => 'Chave de cadastro inválida.'], 403);
+        $name = trim((string)($data['name'] ?? ''));
+        $email = strtolower(trim((string)($data['email'] ?? '')));
+        $password = (string)($data['password'] ?? '');
+        $confirm = (string)($data['confirmPassword'] ?? '');
+        if ($name === '') output(['error' => 'Informe o nome.'], 422);
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) output(['error' => 'E-mail inválido.'], 422);
+        if (strlen($password) < 6) output(['error' => 'A senha deve ter pelo menos 6 caracteres.'], 422);
+        if ($password !== $confirm) output(['error' => 'As senhas não coincidem.'], 422);
+        $pdo = database();
+        $find = $pdo->prepare('SELECT id_usuario FROM usuarios WHERE email = ? LIMIT 1');
+        $find->execute([$email]);
+        if ($find->fetchColumn()) output(['error' => 'Já existe uma conta com esse e-mail.'], 409);
+        $pdo->prepare('INSERT INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, ?)')
+            ->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), 'Administrador']);
+        $stmt = $pdo->prepare('SELECT id_usuario,nome,email,perfil FROM usuarios WHERE email = ? LIMIT 1');
+        $stmt->execute([$email]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $_SESSION['user'] = ['id' => (int)$row['id_usuario'], 'name' => $row['nome'], 'email' => $row['email'], 'role' => 'Admin'];
+        output(['user' => $_SESSION['user']]);
+    }
     $user = requireLogin(); $pdo = database();
     if ($action === 'session') output(['user'=>$user]);
     if ($action === 'load') { $row = $pdo->query('SELECT content FROM app_state WHERE id = 1')->fetchColumn(); output(['state'=>$row ? json_decode($row, true) : null, 'user'=>$user]); }

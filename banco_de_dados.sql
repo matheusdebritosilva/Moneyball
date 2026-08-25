@@ -18,6 +18,7 @@ CREATE TABLE usuarios (
     nome            VARCHAR(100)        NOT NULL,
     email           VARCHAR(150)        NOT NULL UNIQUE,
     senha           VARCHAR(255)        NOT NULL,
+    perfil          ENUM('Administrador','Analista','Viewer') NOT NULL DEFAULT 'Viewer',
     data_cadastro   DATETIME            DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
@@ -140,3 +141,21 @@ ALTER TABLE jogadores
     MODIFY altura_cm SMALLINT UNSIGNED NULL,
     MODIFY peso_kg SMALLINT UNSIGNED NULL,
     MODIFY numero_camisa TINYINT UNSIGNED NULL;
+
+-- =====================================================================
+-- Usuário administrador padrão
+-- Já vem criado junto com o banco, sem precisar passar pela tela de
+-- cadastro nem depender do api.php criar na primeira requisição.
+-- Login:  admin@2kstats.gg
+-- Senha:  admin123   (troque depois de entrar pela primeira vez)
+-- O hash abaixo é bcrypt (mesmo formato do password_hash() do PHP),
+-- então password_verify() no login funciona normalmente.
+-- INSERT IGNORE: se o script rodar de novo, não duplica nem dá erro.
+-- =====================================================================
+INSERT IGNORE INTO usuarios (nome, email, senha, perfil)
+VALUES (
+    'Administrador',
+    'admin@2kstats.gg',
+    '$2b$10$f016mfdoUEmVBbxrJzBXc.oC9oxB41aq35TBUTAh5eABoU8jr.2X2',
+    'Administrador'
+);
